@@ -1,4 +1,4 @@
-use crate::state::CounterAccount;
+use crate::{error::CustomError, state::CounterAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     account_info::next_account_info, account_info::AccountInfo, entrypoint::ProgramResult, msg,
@@ -49,7 +49,7 @@ pub fn process_initialize_counter(
 pub fn process_change_counter(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
-    direction: i64,
+    inc: bool,
 ) -> ProgramResult {
     let accounts_iter = &mut accounts.iter();
     let counter_account = next_account_info(accounts_iter)?;
@@ -60,11 +60,20 @@ pub fn process_change_counter(
 
     let mut data = counter_account.data.borrow_mut();
     let mut counter_data: CounterAccount = CounterAccount::try_from_slice(&data)?;
-
-    counter_data.count = counter_data
-        .count
-        .checked_add(direction)
-        .ok_or(ProgramError::InvalidAccountData)?;
+    match inc {
+        true => {
+            counter_data.count = counter_data
+                .count
+                .checked_add(1)
+                .ok_or(CustomError::Overflow)?;
+        }
+        false => {
+            counter_data.count = counter_data
+                .count
+                .checked_sub(1)
+                .ok_or(CustomError::Underflow)?;
+        }
+    };
     counter_data.serialize(&mut &mut data[..])?;
     msg!("counter incremented to: {}", counter_data.count);
     Ok(())

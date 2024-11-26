@@ -22,6 +22,7 @@ path = "./src/entrypoint.rs"
 [dependencies]
 borsh = "1.5.3"
 solana-program = "1.18.26"
+thiserror = "2.0.3"
 
 [dev-dependencies]
 env_logger = "0.11.5"
