@@ -3,4 +3,31 @@ name = "vote_program"
 version = "0.1.0"
 edition = "2021"
 
+# scripts used for cargo-run 
+[package.metadata.scripts]
+address-program = "solana address -k ./target/deploy/*.json"
+deploy = "cargo build-sbf && solana program deploy ./target/deploy/counter_program.so"
+close = "solana program close $SHELL"
+clean = "cargo run-script close && cargo clean"
+update = "cargo build-sbf && cargo run-script deploy"
+
+[[example]]
+name = "client"
+path = "examples/client.rs"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+path = "./src/entrypoint.rs"
+
 [dependencies]
+borsh = "1.5.3"
+solana-program = "1.18.26"
+thiserror = "2.0.3"
+
+[dev-dependencies]
+env_logger = "0.11.5"
+log = "0.4.22"
+solana-client = "1.18.26"
+solana-program-test = "1.18.26"
+solana-sdk = "1.18.26"
+tokio = "1.41.1"
