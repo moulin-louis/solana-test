@@ -17,6 +17,7 @@ path = "examples/client.rs"
 
 [lib]
 crate-type = ["cdylib", "lib"]
+path = "./src/entrypoint.rs"
 
 [dependencies]
 borsh = "1.5.3"

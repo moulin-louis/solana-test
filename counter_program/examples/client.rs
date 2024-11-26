@@ -1,19 +1,18 @@
-use counter_program::CounterInstruction;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
     instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
+    signature::{read_keypair_file, Keypair, Signer},
     system_program,
     transaction::Transaction,
 };
-use std::str::FromStr;
+
+use counter_program::instructions::CounterInstruction;
 
 #[tokio::main]
 async fn main() {
-    // Program ID (replace with your actual program ID)
-    let program_id = Pubkey::from_str("4Ke2AG9jTizWZT1gCaswFHDxDN4aYkDmgngQ1WM9ynAf").unwrap();
+    let keypair = read_keypair_file("./target/deploy/counter_program-keypair.json").unwrap();
+    let program_pubkey = keypair.pubkey();
 
     // Connect to the Solana devnet
     let rpc_url = String::from("http://127.0.0.1:8899");
@@ -36,10 +35,10 @@ async fn main() {
             break;
         }
     }
-    let tx_init = CounterInstruction::InitCounter { init_value: 42 };
+    let tx_init = CounterInstruction::InitCounter;
     // Create the instruction
     let ix = Instruction::new_with_borsh(
-        program_id,
+        program_pubkey,
         &tx_init,
         vec![
             AccountMeta::new(counter_keypair.pubkey(), true),
@@ -64,7 +63,7 @@ async fn main() {
     let tx_inc = CounterInstruction::IncCounter;
 
     let ix = Instruction::new_with_borsh(
-        program_id,
+        program_pubkey,
         &tx_inc,
         vec![AccountMeta::new(counter_keypair.pubkey(), true)],
     );
