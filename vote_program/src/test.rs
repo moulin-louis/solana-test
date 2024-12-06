@@ -1,137 +1,239 @@
 use borsh::BorshDeserialize;
 use env_logger;
-use log::{error, info};
+use log::info;
 use solana_program_test::*;
 use solana_sdk::{
+    commitment_config::CommitmentLevel,
     instruction::{AccountMeta, Instruction},
     signature::Keypair,
     signer::Signer,
     system_program,
     transaction::Transaction,
 };
-use state::CounterAccount;
+use state::VoteAccount;
 
 use super::*;
 
-fn panic_log(content: String) -> ! {
-    error!("{}", content);
-    panic!("{}", content);
-}
-
 fn setup() {
-    env_logger::builder()
+    let _ = env_logger::builder()
         .is_test(true)
-        //disable all logs by defaykt
         .filter(None, log::LevelFilter::Off)
-        //enable solana program logs
         .filter(
             Some("solana_runtime::message_processor::stable_log"),
             log::LevelFilter::Trace,
         )
-        //enable our test log
-        .filter_module("counter_program::test", log::LevelFilter::Trace)
-        .init();
+        .filter_module("vote_program::test", log::LevelFilter::Trace)
+        .try_init();
 }
 
 #[tokio::test]
-async fn test_init() {
+async fn test_vote_lifecycle() {
     setup();
 
     let program_id = Pubkey::new_unique();
     let (mut bank_clients, payer, recent_blockhash) =
-        ProgramTest::new("counter_program", program_id, processor!(entrypoints))
+        ProgramTest::new("vote_program", program_id, processor!(entrypoints))
             .start()
             .await;
 
-    let counter_keypair = Keypair::new();
-    let init_val = 0i64;
-
-    let mut init_instruction_data: Vec<u8> = vec![CounterInstruction::InitCounter as u8];
-    init_instruction_data.extend_from_slice(&init_val.to_le_bytes());
+    // Create a new vote account
+    let vote_keypair = Keypair::new();
+    info!("Testing vote account creation...");
 
     let init_instruction = Instruction::new_with_bytes(
         program_id,
-        &init_instruction_data,
+        &[VoteInstruction::CreateVote as u8],
         vec![
-            AccountMeta::new(counter_keypair.pubkey(), true),
+            AccountMeta::new(vote_keypair.pubkey(), true),
             AccountMeta::new(payer.pubkey(), true),
             AccountMeta::new_readonly(system_program::id(), false),
         ],
     );
 
     let mut tx = Transaction::new_with_payer(&[init_instruction], Some(&payer.pubkey()));
-    tx.sign(&[&payer, &counter_keypair], recent_blockhash);
+    tx.sign(&[&payer, &vote_keypair], recent_blockhash);
     bank_clients.process_transaction(tx).await.unwrap();
 
-    let account = match bank_clients.get_account(counter_keypair.pubkey()).await {
-        Ok(x) => x,
-        Err(err) => {
-            panic_log(format!("failed to get counter account: {}", err));
-        }
-    };
+    // Verify initial state
+    let account = bank_clients
+        .get_account(vote_keypair.pubkey())
+        .await
+        .unwrap()
+        .unwrap();
+    let vote = VoteAccount::try_from_slice(&account.data).unwrap();
+    assert_eq!(vote.owner, payer.pubkey());
+    assert_eq!(vote.score, 0);
+    info!("Vote account created successfully: {:?}", vote);
 
-    if let Some(account_data) = account {
-        let counter = CounterAccount::try_from_slice(&account_data.data)
-            .expect("failed to deserialize counter data");
-        assert_eq!(counter.count, init_val);
-        info!("counter init successfully with value {}", counter.count);
-    } else {
-        panic_log("No counter account found".to_string());
-    }
-
-    info!("Testing counter increment...");
-
-    let inc_instructionb = Instruction::new_with_bytes(
+    // Test adding votes
+    info!("Testing vote addition...");
+    let add_vote_instruction = Instruction::new_with_bytes(
         program_id,
-        &[CounterInstruction::IncCounter as u8],
-        vec![AccountMeta::new(counter_keypair.pubkey(), true)],
+        &[VoteInstruction::AddVote as u8],
+        vec![AccountMeta::new(vote_keypair.pubkey(), true)],
     );
 
-    let mut tx = Transaction::new_with_payer(&[inc_instructionb], Some(&payer.pubkey()));
-    tx.sign(&[&payer, &counter_keypair], recent_blockhash);
+    let mut tx = Transaction::new_with_payer(&[add_vote_instruction], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &vote_keypair], recent_blockhash);
     bank_clients.process_transaction(tx).await.unwrap();
 
-    let account = match bank_clients.get_account(counter_keypair.pubkey()).await {
-        Ok(x) => x,
-        Err(err) => {
-            panic_log(format!("failed to get counter account: {}", err));
-        }
-    };
+    // Verify vote was added
+    let account = bank_clients
+        .get_account(vote_keypair.pubkey())
+        .await
+        .unwrap()
+        .unwrap();
+    let vote = VoteAccount::try_from_slice(&account.data).unwrap();
+    assert_eq!(vote.score, 1);
+    info!("Vote added successfully, new score: {}", vote.score);
 
-    if let Some(account_data) = account {
-        let counter = CounterAccount::try_from_slice(&account_data.data)
-            .expect("failed to deserialize counter data");
-        assert_eq!(counter.count, init_val + 1);
-        info!("counter incremented successfully to {}", counter.count);
-    } else {
-        panic_log(format!("No counter account found"));
-    }
-
-    info!("Testing counter decrement...");
-
-    let dec_instruction = Instruction::new_with_bytes(
+    // Test removing votes
+    info!("Testing vote removal...");
+    let remove_vote_instruction = Instruction::new_with_bytes(
         program_id,
-        &[CounterInstruction::DecCounter as u8],
-        vec![AccountMeta::new(counter_keypair.pubkey(), true)],
+        &[VoteInstruction::RemoveVote as u8],
+        vec![AccountMeta::new(vote_keypair.pubkey(), true)],
     );
 
-    let mut tx = Transaction::new_with_payer(&[dec_instruction], Some(&payer.pubkey()));
-    tx.sign(&[&payer, &counter_keypair], recent_blockhash);
+    let mut tx = Transaction::new_with_payer(&[remove_vote_instruction], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &vote_keypair], recent_blockhash);
     bank_clients.process_transaction(tx).await.unwrap();
 
-    let account = match bank_clients.get_account(counter_keypair.pubkey()).await {
-        Ok(x) => x,
-        Err(err) => {
-            panic_log(format!("failed to get counter account: {}", err));
-        }
-    };
+    // Verify vote was removed
+    let account = bank_clients
+        .get_account(vote_keypair.pubkey())
+        .await
+        .unwrap()
+        .unwrap();
+    let vote = VoteAccount::try_from_slice(&account.data).unwrap();
+    assert_eq!(vote.score, 0);
+    info!("Vote removed successfully, new score: {}", vote.score);
 
-    if let Some(account_data) = account {
-        let counter = CounterAccount::try_from_slice(&account_data.data)
-            .expect("failed to deserialize counter data");
-        assert_eq!(counter.count, init_val);
-        info!("counter decremented successfully to {}", counter.count);
-    } else {
-        panic_log(format!("No counter account found"));
+    // Test closing vote account
+    info!("Testing vote account closure...");
+    let close_instruction = Instruction::new_with_bytes(
+        program_id,
+        &[VoteInstruction::CloseVote as u8],
+        vec![
+            AccountMeta::new(vote_keypair.pubkey(), true),
+            AccountMeta::new(payer.pubkey(), true),
+        ],
+    );
+
+    let mut tx = Transaction::new_with_payer(&[close_instruction], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &vote_keypair], recent_blockhash);
+    bank_clients.process_transaction(tx).await.unwrap();
+
+    // Verify account was closed
+    let account = bank_clients
+        .get_account(vote_keypair.pubkey())
+        .await
+        .unwrap();
+    assert!(account.is_none(), "Vote account should be closed");
+    info!("Vote account closed successfully");
+}
+
+#[tokio::test]
+async fn test_multiple_votes() {
+    setup();
+
+    let program_id = Pubkey::new_unique();
+    let (mut bank_clients, payer, recent_blockhash) =
+        ProgramTest::new("vote_program", program_id, processor!(entrypoints))
+            .start()
+            .await;
+
+    let vote_keypair = Keypair::new();
+
+    // Create vote account
+    let init_instruction = Instruction::new_with_bytes(
+        program_id,
+        &[VoteInstruction::CreateVote as u8],
+        vec![
+            AccountMeta::new(vote_keypair.pubkey(), true),
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+    );
+    {
+        let mut tx = Transaction::new_with_payer(&[init_instruction], Some(&payer.pubkey()));
+        tx.sign(&[&payer, &vote_keypair], recent_blockhash);
+        bank_clients
+            .process_transaction_with_commitment(tx, CommitmentLevel::Finalized)
+            .await
+            .unwrap();
+        info!("vote account created");
     }
+
+    // Add multiple votes
+    for i in 0..5 {
+        info!("Trying to add vote, i  = {}", i);
+        let add_vote_instruction = Instruction::new_with_bytes(
+            program_id,
+            &[VoteInstruction::AddVote as u8],
+            vec![AccountMeta::new(vote_keypair.pubkey(), true)],
+        );
+        info!("instruction created");
+
+        let mut tx = Transaction::new_with_payer(&[add_vote_instruction], Some(&payer.pubkey()));
+        info!("tx created");
+        tx.sign(&[&payer, &vote_keypair], recent_blockhash);
+        info!("tx signed");
+        bank_clients.process_transaction(tx).await.unwrap();
+        info!("tx processed");
+
+        let account = bank_clients
+            .get_account(vote_keypair.pubkey())
+            .await
+            .unwrap()
+            .unwrap();
+        let vote = VoteAccount::try_from_slice(&account.data).unwrap();
+        assert_eq!(vote.score, i + 1);
+        info!("Added vote #{}, total score: {}", i + 1, vote.score);
+    }
+
+    // Remove some votes
+    for i in 0..3 {
+        info!("trying to remove vote");
+        let remove_vote_instruction = Instruction::new_with_bytes(
+            program_id,
+            &[VoteInstruction::RemoveVote as u8],
+            vec![AccountMeta::new(vote_keypair.pubkey(), true)],
+        );
+
+        let mut tx = Transaction::new_with_payer(&[remove_vote_instruction], Some(&payer.pubkey()));
+        tx.sign(&[&payer, &vote_keypair], recent_blockhash);
+        bank_clients.process_transaction(tx).await.unwrap();
+
+        let account = bank_clients
+            .get_account(vote_keypair.pubkey())
+            .await
+            .unwrap()
+            .unwrap();
+        let vote = VoteAccount::try_from_slice(&account.data).unwrap();
+        assert_eq!(vote.score, 4 - i);
+        info!("Removed vote #{}, total score: {}", i + 1, vote.score);
+    }
+
+    info!("Closing vote account...");
+    let close_instruction = Instruction::new_with_bytes(
+        program_id,
+        &[VoteInstruction::CloseVote as u8],
+        vec![
+            AccountMeta::new(vote_keypair.pubkey(), true),
+            AccountMeta::new(payer.pubkey(), true),
+        ],
+    );
+
+    let mut tx = Transaction::new_with_payer(&[close_instruction], Some(&payer.pubkey()));
+    tx.sign(&[&payer, &vote_keypair], recent_blockhash);
+    bank_clients.process_transaction(tx).await.unwrap();
+
+    // Verify account was closed
+    let account = bank_clients
+        .get_account(vote_keypair.pubkey())
+        .await
+        .unwrap();
+    assert!(account.is_none(), "Vote account should be closed");
+    info!("Vote account closed successfully");
 }

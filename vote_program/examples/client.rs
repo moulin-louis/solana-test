@@ -7,7 +7,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 
-use counter_program::instructions::CounterInstruction;
+use vote_program::instructions::VoteInstruction;
 
 #[tokio::main]
 async fn main() {
@@ -35,7 +35,7 @@ async fn main() {
             break;
         }
     }
-    let tx_init = CounterInstruction::InitCounter;
+    let tx_init = VoteInstruction::CreateVote;
     // Create the instruction
     let ix = Instruction::new_with_borsh(
         program_pubkey,
@@ -57,25 +57,6 @@ async fn main() {
     // Send and confirm the transaction
     match client.send_and_confirm_transaction(&tx) {
         Ok(signature) => println!("Success Init Transaction Signature: {}", signature),
-        Err(err) => eprintln!("Error sending transaction: {}", err),
-    }
-
-    let tx_inc = CounterInstruction::IncCounter;
-
-    let ix = Instruction::new_with_borsh(
-        program_pubkey,
-        &tx_inc,
-        vec![AccountMeta::new(counter_keypair.pubkey(), true)],
-    );
-    let mut tx = Transaction::new_with_payer(&[ix], Some(&payer.pubkey()));
-    tx.sign(
-        &[&payer, &counter_keypair],
-        client.get_latest_blockhash().unwrap(),
-    );
-
-    // Send and confirm the transaction
-    match client.send_and_confirm_transaction(&tx) {
-        Ok(signature) => println!("Success Inc Transaction Signature: {}", signature),
         Err(err) => eprintln!("Error sending transaction: {}", err),
     }
 }

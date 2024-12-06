@@ -21,6 +21,7 @@ path = "./src/entrypoint.rs"
 
 [dependencies]
 borsh = "1.5.3"
+heapless = "0.8.0"
 solana-program = "1.18.26"
 thiserror = "2.0.3"
 
